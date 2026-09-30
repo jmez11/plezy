@@ -507,6 +507,16 @@ class TvBrowseRailState extends State<TvBrowseRail> with TickerProviderStateMixi
     CoveredRouteFocusBoundary.requestInitialFocus(context, _focusNode);
   }
 
+  /// Scrolls the vertical list by a delta (e.g. from mouse-wheel or pointer scroll).
+  void scrollBy(double dy) {
+    if (!_verticalController.hasClients) return;
+    final pos = _verticalController.position;
+    final target = (pos.pixels + dy).clamp(0.0, pos.maxScrollExtent);
+    _verticalController.jumpTo(target);
+  }
+
+  ScrollController get verticalController => _verticalController;
+
   @override
   void initState() {
     super.initState();
@@ -1411,7 +1421,7 @@ class TvBrowseRailState extends State<TvBrowseRail> with TickerProviderStateMixi
     return ListView.builder(
       key: const ValueKey('tv_browse_rail_vertical'),
       controller: _verticalController,
-      physics: const NeverScrollableScrollPhysics(),
+      physics: const ClampingScrollPhysics(),
       // Inert on media lists (no keep-alive clients): dropping the per-child
       // wrappers shrinks build + semantics work per item.
       addAutomaticKeepAlives: false,
