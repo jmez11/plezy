@@ -284,6 +284,14 @@ class MainActivity : FlutterActivity() {
     val uiModeType = resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK
     val isTelevisionUiMode = uiModeType == Configuration.UI_MODE_TYPE_TELEVISION
 
+    // A VR headset is never a TV: Quest/Oculus/Meta devices can report TV-like
+    // signals (no touchscreen flag, stray leanback flags). Models and
+    // manufacturers vary by SKU, so check lowercase substrings.
+    val model = Build.MODEL?.lowercase() ?: ""
+    val manufacturer = Build.MANUFACTURER?.lowercase() ?: ""
+    val isVrHeadset = model.contains("oculus") || model.contains("quest") ||
+      manufacturer.contains("oculus") || manufacturer.contains("meta")
+
     @Suppress("DEPRECATION")
     val hasTelevisionFeature = pm.hasSystemFeature(PackageManager.FEATURE_TELEVISION)
     val hasLeanback = pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
@@ -301,10 +309,12 @@ class MainActivity : FlutterActivity() {
 
     return mapOf(
       // A car is never a TV: rotary-only head units report no touchscreen, and
-      // an OEM image can carry a stray leanback flag. Keep the raw reasons for
-      // diagnostics, but never let them promote a vehicle to the TV experience.
-      "isTv" to (!isAutomotive && reasons.isNotEmpty()),
+      // an OEM image can carry a stray leanback flag. Same for VR headsets.
+      // Keep the raw reasons for diagnostics, but never let them promote a
+      // vehicle or headset to the TV experience.
+      "isTv" to (!isAutomotive && !isVrHeadset && reasons.isNotEmpty()),
       "isAutomotive" to isAutomotive,
+      "isVrHeadset" to isVrHeadset,
       "reasons" to reasons,
       "isTelevisionUiMode" to isTelevisionUiMode,
       "hasTelevisionFeature" to hasTelevisionFeature,
