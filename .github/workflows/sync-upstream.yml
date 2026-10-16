@@ -31,9 +31,14 @@ jobs:
       - name: Check for new upstream release
         id: check
         run: |
+          git remote add upstream https://github.com/edde746/plezy.git || true
           LATEST=$(curl -sSf https://api.github.com/repos/edde746/plezy/releases/latest | jq -r .tag_name)
           echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
-          if git ls-remote --tags origin | grep -q "refs/tags/${LATEST}$"; then
+          git fetch upstream tag "$LATEST"
+          # Synced means the fix stack already contains the latest upstream tag.
+          # (The mirrored tag alone isn't enough: a previous run may have
+          # mirrored it without finishing the rebase.)
+          if git merge-base --is-ancestor "$LATEST" origin/quest-enhancements 2>/dev/null; then
             echo "needed=false" >> "$GITHUB_OUTPUT"
           else
             echo "needed=true" >> "$GITHUB_OUTPUT"
