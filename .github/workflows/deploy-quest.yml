@@ -32,7 +32,9 @@ jobs:
       - name: Download the release APK
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release download "${{ inputs.tag }}" --pattern 'plezy-quest.apk' --dir /tmp
+        # NOTE: --repo is required because this job does no checkout, so gh
+        # cannot infer the repository from a git remote.
+        run: gh release download "${{ inputs.tag }}" --repo "${{ github.repository }}" --pattern 'plezy-quest.apk' --dir /tmp
 
       - name: Open the tunnel
         env:
