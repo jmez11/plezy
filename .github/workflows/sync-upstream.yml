@@ -39,17 +39,29 @@ jobs:
             echo "needed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Mirror upstream tag and fast-forward main
+      - name: Mirror upstream tag and rebase main
         if: steps.check.outputs.needed == 'true'
+        id: mainrebase
         run: |
           TAG="${{ steps.check.outputs.latest }}"
           git remote add upstream https://github.com/edde746/plezy.git || true
-          git fetch upstream tag "$TAG" main
+          git fetch upstream tag "$TAG"
+          git fetch upstream main
           git push origin "refs/tags/$TAG:refs/tags/$TAG"
-          git push origin upstream/main:main
+          # main carries our workflow files on top of upstream, so it can't
+          # fast-forward: rebase those commits onto the new upstream main.
+          git checkout -B main origin/main
+          if git rebase upstream/main; then
+            echo "conflict=false" >> "$GITHUB_OUTPUT"
+            git push --force-with-lease origin main
+          else
+            git rebase --abort || true
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
       - name: Rebase quest-enhancements onto the new tag
-        if: steps.check.outputs.needed == 'true'
+        if: steps.check.outputs.needed == 'true' && steps.mainrebase.outputs.conflict != 'true'
         id: rebase
         run: |
           TAG="${{ steps.check.outputs.latest }}"
@@ -82,13 +94,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ steps.check.outputs.latest }}"
-          if [ "${{ steps.rebase.outputs.conflict }}" = "true" ]; then
+          if [ "${{ steps.mainrebase.outputs.conflict }}" = "true" ]; then
+            gh issue create \
+              --title "Upstream $TAG needs a manual rebase (main)" \
+              --body "Rebasing main's workflow commits onto upstream $TAG conflicted. Nothing was pushed. Rebase main locally, resolve, force-push, then re-run 'Sync upstream release'."
+          elif [ "${{ steps.rebase.outputs.conflict }}" = "true" ]; then
             gh issue create \
               --title "Upstream $TAG needs a manual rebase" \
               --body "The rebase of quest-enhancements onto upstream $TAG conflicted. Nothing was pushed. Rebase it locally, resolve, force-push quest-enhancements, then dispatch 'Build quest release'."
           else
             ABSORBED="${{ steps.rebase.outputs.absorbed }}"
-            BODY="Synced upstream $TAG: tag mirrored, main fast-forwarded, quest-enhancements rebased and pushed."
+            BODY="Synced upstream $TAG: tag mirrored, main rebased onto upstream/main, quest-enhancements rebased and pushed."
             if [ -n "$ABSORBED" ]; then
               BODY="$BODY Upstream already absorbed these fixes (dropped from the stack): $ABSORBED."
             fi
