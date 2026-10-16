@@ -1,0 +1,65 @@
+name: Deploy to Quest
+
+# Installs a published quest release APK on the Quest 3 through the
+# Farside-hosted Cloudflare tunnel. Farside must be running on the headset
+# with its tunnel started — reaching the headset this way IS the test.
+# Manual trigger only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to install (e.g. quest-2.23.0)'
+        required: true
+      hostname:
+        description: 'Tunnel hostname publishing the Quest adbd (defaults to the ADB_TUNNEL_HOSTNAME secret)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Install cloudflared and adb
+        run: |
+          curl -sSfL -o /tmp/cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i /tmp/cloudflared.deb
+          sudo apt-get update -qq && sudo apt-get install -y -qq adb
+
+      - name: Download the release APK
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release download "${{ inputs.tag }}" --pattern 'plezy-quest.apk' --dir /tmp
+
+      - name: Open the tunnel
+        env:
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          HOST="${{ inputs.hostname }}"
+          if [ -z "$HOST" ]; then HOST="${{ secrets.ADB_TUNNEL_HOSTNAME }}"; fi
+          if [ -z "$HOST" ]; then
+            echo "Set the hostname input or the ADB_TUNNEL_HOSTNAME secret." >&2
+            exit 1
+          fi
+          cloudflared access tcp --hostname "$HOST" --url 127.0.0.1:5555 &
+          echo $! > /tmp/cloudflared.pid
+          sleep 5
+
+      - name: Install on the headset
+        run: |
+          for i in 1 2 3 4 5 6; do
+            adb connect 127.0.0.1:5555 && break || sleep 10
+          done
+          adb wait-for-device
+          adb install -r /tmp/plezy-quest.apk
+
+      - name: Verify installed version
+        run: adb shell dumpsys package com.edde746.plezy | grep -i versionName
+
+      - name: Close the tunnel
+        if: always()
+        run: kill "$(cat /tmp/cloudflared.pid)" || true
