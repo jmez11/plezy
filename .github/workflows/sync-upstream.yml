@@ -1,0 +1,97 @@
+name: Sync upstream release
+
+# Watches edde746/plezy releases. On a new tag: mirrors the tag, fast-forwards
+# main (pure upstream mirror), and rebases the quest-enhancements fix stack
+# onto it. Fixes upstream already merged become empty and are dropped by the
+# rebase automatically ("smart apply"). A conflict halts the job and opens an
+# issue instead of pushing anything.
+
+on:
+  schedule:
+    - cron: '20 16 * * *'  # daily ~09:20 America/Los_Angeles
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "jmez11"
+          git config user.email "40301782+jmez11@users.noreply.github.com"
+
+      - name: Check for new upstream release
+        id: check
+        run: |
+          LATEST=$(curl -sSf https://api.github.com/repos/edde746/plezy/releases/latest | jq -r .tag_name)
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          if git ls-remote --tags origin | grep -q "refs/tags/${LATEST}$"; then
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Mirror upstream tag and fast-forward main
+        if: steps.check.outputs.needed == 'true'
+        run: |
+          TAG="${{ steps.check.outputs.latest }}"
+          git remote add upstream https://github.com/edde746/plezy.git || true
+          git fetch upstream tag "$TAG" main
+          git push origin "refs/tags/$TAG:refs/tags/$TAG"
+          git push origin upstream/main:main
+
+      - name: Rebase quest-enhancements onto the new tag
+        if: steps.check.outputs.needed == 'true'
+        id: rebase
+        run: |
+          TAG="${{ steps.check.outputs.latest }}"
+          git fetch origin quest-enhancements
+          git checkout -B quest-enhancements origin/quest-enhancements
+          # Fixes upstream already absorbed show up as '-' (patch-equivalent upstream).
+          git cherry "tags/$TAG" HEAD | grep '^-' | cut -d' ' -f2 > /tmp/absorbed.txt || true
+          {
+            echo "absorbed<<EOF"
+            cat /tmp/absorbed.txt
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          AHEAD=$(git rev-list --count "tags/$TAG"..HEAD)
+          if [ "$AHEAD" -eq 0 ]; then
+            # Nothing unique left (all fixes absorbed, or branch behind): fast-forward.
+            git reset --hard "tags/$TAG"
+            echo "conflict=false" >> "$GITHUB_OUTPUT"
+          elif git rebase --onto "tags/$TAG" "$(git merge-base HEAD "tags/$TAG")"; then
+            echo "conflict=false" >> "$GITHUB_OUTPUT"
+          else
+            git rebase --abort || true
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git push --force-with-lease origin quest-enhancements
+
+      - name: Report
+        if: steps.check.outputs.needed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.check.outputs.latest }}"
+          if [ "${{ steps.rebase.outputs.conflict }}" = "true" ]; then
+            gh issue create \
+              --title "Upstream $TAG needs a manual rebase" \
+              --body "The rebase of quest-enhancements onto upstream $TAG conflicted. Nothing was pushed. Rebase it locally, resolve, force-push quest-enhancements, then dispatch 'Build quest release'."
+          else
+            ABSORBED="${{ steps.rebase.outputs.absorbed }}"
+            BODY="Synced upstream $TAG: tag mirrored, main fast-forwarded, quest-enhancements rebased and pushed."
+            if [ -n "$ABSORBED" ]; then
+              BODY="$BODY Upstream already absorbed these fixes (dropped from the stack): $ABSORBED."
+            fi
+            BODY="$BODY Next: dispatch 'Build quest release' with tag quest-$TAG, then 'Deploy to Quest'."
+            gh issue create --title "Upstream $TAG synced" --body "$BODY"
+          fi
