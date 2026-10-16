@@ -40,8 +40,8 @@ jobs:
         run: |
           git config user.name "jmez11"
           git config user.email "40301782+jmez11@users.noreply.github.com"
-          git tag "${{ inputs.tag }}" "${{ inputs.ref }}"
-          git push origin "${{ inputs.tag }}"
+          git tag -f "${{ inputs.tag }}" "${{ inputs.ref }}"
+          git push -f origin "${{ inputs.tag }}"
 
       - name: Setup Java
         uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
@@ -91,7 +91,9 @@ jobs:
         run: rm -f android/app/upload-keystore.jks android/key.properties
 
       - name: Rename APK
-        run: cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk plezy-quest.apk
+        # NOTE: without --split-per-abi the output is app-release.apk
+        # (the -arm64-v8a- infix only appears with --split-per-abi).
+        run: cp build/app/outputs/flutter-apk/app-release.apk plezy-quest.apk
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4
