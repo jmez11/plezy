@@ -1,0 +1,108 @@
+name: Build quest release
+
+# Builds a signed arm64-only APK from the rebased fix stack and publishes it
+# as a GitHub Release on this fork.
+# Trigger: push a quest-* tag, or manual dispatch (which creates the tag).
+# NOTE: a tag pushed by another workflow via GITHUB_TOKEN does not retrigger
+# workflows, so have the sync job stop at the branch and create the tag here
+# or push it yourself.
+
+on:
+  push:
+    tags:
+      - 'quest-*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to create and build (e.g. quest-2.23.0)'
+        required: true
+      ref:
+        description: 'Ref to build'
+        default: 'quest-enhancements'
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: "3.47.1"  # keep in step with upstream's build.yml
+
+jobs:
+  build-android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Create release tag (manual dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name "jmez11"
+          git config user.email "40301782+jmez11@users.noreply.github.com"
+          git tag "${{ inputs.tag }}" "${{ inputs.ref }}"
+          git push origin "${{ inputs.tag }}"
+
+      - name: Setup Java
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: 'stable'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Cache Pub and Gradle
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: |
+            ~/.pub-cache
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: quest-${{ runner.os }}-${{ hashFiles('pubspec.yaml', 'pubspec.lock', '**/*.gradle*', '**/gradle-wrapper.properties') }}
+
+      - name: Install dependencies
+        run: flutter pub get --enforce-lockfile --no-example
+
+      - name: Configure Android signing
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks
+          cat > android/key.properties << 'EOF'
+          storePassword=${{ secrets.ANDROID_STORE_PASSWORD }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          storeFile=upload-keystore.jks
+          EOF
+
+      - name: Build arm64 release APK
+        run: >
+          flutter build apk --release --target-platform android-arm64
+          --dart-define=GIT_COMMIT=${{ github.sha }}
+          --dart-define=SENTRY_ENVIRONMENT=github
+          --obfuscate --split-debug-info=debug-info/android-apk
+          --extra-gen-snapshot-options=--save-obfuscation-map=debug-info/android-apk/obfuscation.map.json
+
+      - name: Clean up keystore
+        if: always()
+        run: rm -f android/app/upload-keystore.jks android/key.properties
+
+      - name: Rename APK
+        run: cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk plezy-quest.apk
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4
+        with:
+          subject-path: plezy-quest.apk
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          name: ${{ inputs.tag || github.ref_name }}
+          files: plezy-quest.apk
+          prerelease: true
+          generate_release_notes: true
