@@ -13,7 +13,6 @@ on:
 
 permissions:
   contents: write
-  issues: write
 
 jobs:
   sync:
@@ -95,24 +94,27 @@ jobs:
 
       - name: Report
         if: steps.check.outputs.needed == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ steps.check.outputs.latest }}"
-          if [ "${{ steps.mainrebase.outputs.conflict }}" = "true" ]; then
-            gh issue create \
-              --title "Upstream $TAG needs a manual rebase (main)" \
-              --body "Rebasing main's workflow commits onto upstream $TAG conflicted. Nothing was pushed. Rebase main locally, resolve, force-push, then re-run 'Sync upstream release'."
-          elif [ "${{ steps.rebase.outputs.conflict }}" = "true" ]; then
-            gh issue create \
-              --title "Upstream $TAG needs a manual rebase" \
-              --body "The rebase of quest-enhancements onto upstream $TAG conflicted. Nothing was pushed. Rebase it locally, resolve, force-push quest-enhancements, then dispatch 'Build quest release'."
-          else
-            ABSORBED="${{ steps.rebase.outputs.absorbed }}"
-            BODY="Synced upstream $TAG: tag mirrored, main rebased onto upstream/main, quest-enhancements rebased and pushed."
-            if [ -n "$ABSORBED" ]; then
-              BODY="$BODY Upstream already absorbed these fixes (dropped from the stack): $ABSORBED."
+          {
+            echo "## Upstream $TAG sync report"
+            echo ""
+            if [ "${{ steps.mainrebase.outputs.conflict }}" = "true" ]; then
+              echo "❌ Rebasing main's workflow commits onto upstream $TAG **conflicted**. Nothing was pushed."
+              echo "Rebase main locally, resolve, force-push, then re-run 'Sync upstream release'."
+            elif [ "${{ steps.rebase.outputs.conflict }}" = "true" ]; then
+              echo "❌ The rebase of quest-enhancements onto upstream $TAG **conflicted**. Nothing was pushed."
+              echo "Rebase it locally, resolve, force-push quest-enhancements, then dispatch 'Build quest release'."
+            else
+              echo "✅ Synced upstream $TAG: tag mirrored, main rebased onto upstream/main, quest-enhancements rebased and pushed."
+              echo ""
+              ABSORBED="${{ steps.rebase.outputs.absorbed }}"
+              if [ -n "$ABSORBED" ]; then
+                echo "Upstream already absorbed these fixes (dropped from the stack):"
+                echo '```'
+                echo "$ABSORBED"
+                echo '```'
+              fi
+              echo "Next: dispatch 'Build quest release' with tag \`quest-$TAG\`, then 'Deploy to Quest'."
             fi
-            BODY="$BODY Next: dispatch 'Build quest release' with tag quest-$TAG, then 'Deploy to Quest'."
-            gh issue create --title "Upstream $TAG synced" --body "$BODY"
-          fi
+          } >> "$GITHUB_STEP_SUMMARY"
