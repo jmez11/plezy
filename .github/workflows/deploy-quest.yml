@@ -65,6 +65,12 @@ jobs:
             echo "Set the hostname input or the ADB_TUNNEL_HOSTNAME secret." >&2
             exit 1
           fi
+          # Fail fast: without a service token cloudflared falls back to an
+          # interactive browser login and the tunnel silently never proxies.
+          if [ -z "${CF_ACCESS_CLIENT_ID:-}" ] || [ -z "${CF_ACCESS_CLIENT_SECRET:-}" ]; then
+            echo "CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET secrets are empty or not set." >&2
+            exit 1
+          fi
           cloudflared access tcp --hostname "$HOST" --url 127.0.0.1:5555 > /tmp/cloudflared.log 2>&1 &
           echo $! > /tmp/cloudflared.pid
           sleep 5
