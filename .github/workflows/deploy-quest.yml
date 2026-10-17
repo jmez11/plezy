@@ -25,7 +25,12 @@ jobs:
     steps:
       - name: Install cloudflared and adb
         run: |
-          curl -sSfL -o /tmp/cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          # NOTE: cloudflared is pinned to 2026.5.1, NOT latest. Versions
+          # >=2026.6.0 have a regression (cloudflare/cloudflared#1674) where
+          # `access tcp` ignores service-token credentials (flags, env vars
+          # and header injection) and falls back to interactive browser auth,
+          # so the tunnel never proxies on a headless runner.
+          curl -sSfL -o /tmp/cloudflared.deb https://github.com/cloudflare/cloudflared/releases/download/2026.5.1/cloudflared-linux-amd64.deb
           sudo dpkg -i /tmp/cloudflared.deb
           sudo apt-get update -qq && sudo apt-get install -y -qq adb
 
@@ -74,9 +79,12 @@ jobs:
           fi
 
       - name: Open the tunnel
+        # NOTE: the secrets keep James's CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET
+        # names, but cloudflared's `access` commands read TUNNEL_SERVICE_TOKEN_ID /
+        # TUNNEL_SERVICE_TOKEN_SECRET, so they are remapped here.
         env:
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          TUNNEL_SERVICE_TOKEN_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          TUNNEL_SERVICE_TOKEN_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           set -euo pipefail
           HOST="${{ inputs.hostname }}"
@@ -87,7 +95,7 @@ jobs:
           fi
           # Fail fast: without a service token cloudflared falls back to an
           # interactive browser login and the tunnel silently never proxies.
-          if [ -z "${CF_ACCESS_CLIENT_ID:-}" ] || [ -z "${CF_ACCESS_CLIENT_SECRET:-}" ]; then
+          if [ -z "${TUNNEL_SERVICE_TOKEN_ID:-}" ] || [ -z "${TUNNEL_SERVICE_TOKEN_SECRET:-}" ]; then
             echo "CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET secrets are empty or not set." >&2
             exit 1
           fi
