@@ -53,6 +53,26 @@ jobs:
           adb kill-server 2>/dev/null || true
           echo "paired adb key installed"
 
+      - name: Check the service token at the edge
+        env:
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          HOST="${{ inputs.hostname }}"
+          if [ -z "$HOST" ]; then HOST="${{ secrets.ADB_TUNNEL_HOSTNAME }}"; fi
+          # Only the HTTP status is printed; the token itself never hits the log.
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 \
+            --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            --header "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+            "https://$HOST/" || echo "curl-failed")
+          echo "edge status with service token: $code"
+          if [ "$code" = "403" ]; then
+            echo "The edge rejected the service token (HTTP 403)." >&2
+            echo "In the Cloudflare Zero Trust dashboard, add this service token to the Access policy of the application guarding the tunnel hostname." >&2
+            exit 1
+          fi
+
       - name: Open the tunnel
         env:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
@@ -102,8 +122,8 @@ jobs:
           if [ "$connected" -ne 1 ]; then
             echo "=== adb never reached 'device' state ===" >&2
             adb devices -l >&2 || true
-            echo "=== cloudflared log tail ===" >&2
-            tail -40 /tmp/cloudflared.log >&2 || true
+            echo "=== full cloudflared log ===" >&2
+            cat /tmp/cloudflared.log >&2 || true
             exit 1
           fi
           adb -s 127.0.0.1:5555 wait-for-device
