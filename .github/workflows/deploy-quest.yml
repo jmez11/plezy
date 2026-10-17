@@ -36,6 +36,23 @@ jobs:
         # cannot infer the repository from a git remote.
         run: gh release download "${{ inputs.tag }}" --repo "${{ github.repository }}" --pattern 'plezy-quest.apk' --dir /tmp
 
+      - name: Install the paired adb key (if configured)
+        env:
+          ADB_KEY: ${{ secrets.ADB_KEY }}
+          ADB_KEY_PUB: ${{ secrets.ADB_KEY_PUB }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ADB_KEY:-}" ] || [ -z "${ADB_KEY_PUB:-}" ]; then
+            echo "ADB_KEY/ADB_KEY_PUB not set; continuing with an ephemeral key (the Quest will not trust it)."
+            exit 0
+          fi
+          mkdir -p ~/.android
+          printf '%s' "$ADB_KEY" | base64 -d > ~/.android/adbkey
+          printf '%s' "$ADB_KEY_PUB" | base64 -d > ~/.android/adbkey.pub
+          chmod 600 ~/.android/adbkey ~/.android/adbkey.pub
+          adb kill-server 2>/dev/null || true
+          echo "paired adb key installed"
+
       - name: Open the tunnel
         env:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
