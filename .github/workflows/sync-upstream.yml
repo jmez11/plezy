@@ -1,10 +1,10 @@
 name: Sync upstream release
 
-# Watches edde746/plezy releases. On a new tag: mirrors the tag, fast-forwards
-# main (pure upstream mirror), and rebases the quest-enhancements fix stack
-# onto it. Fixes upstream already merged become empty and are dropped by the
-# rebase automatically ("smart apply"). A conflict halts the job and opens an
-# issue instead of pushing anything.
+# Watches edde746/plezy releases. On a new tag: mirrors the tag, rebases
+# main's workflow commits, rebases the quest-enhancements fix stack onto it,
+# and triggers the quest build automatically. Fixes upstream already merged
+# become empty and are dropped by the rebase automatically ("smart apply").
+# A conflict halts the job and reports instead of pushing anything.
 
 on:
   schedule:
@@ -115,6 +115,18 @@ jobs:
                 echo "$ABSORBED"
                 echo '```'
               fi
-              echo "Next: dispatch 'Build quest release' with tag \`quest-$TAG\`, then 'Deploy to Quest'."
+              echo "Next: 'Deploy to Quest' with tag \`quest-$TAG\` when ready to install on the headset."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Trigger quest build
+        if: steps.check.outputs.needed == 'true' && steps.mainrebase.outputs.conflict != 'true' && steps.rebase.outputs.conflict != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # workflow_dispatch via the API runs fine on GITHUB_TOKEN (only
+          # push-triggered reruns are suppressed). The build job creates the
+          # quest-<tag> release tag itself, idempotently.
+          TAG="quest-${{ steps.check.outputs.latest }}"
+          echo "Triggering build-release.yml for $TAG"
+          gh workflow run build-release.yml --ref main -f tag="$TAG" -f ref=quest-enhancements
