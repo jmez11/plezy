@@ -41,26 +41,53 @@ jobs:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
+          set -euo pipefail
           HOST="${{ inputs.hostname }}"
           if [ -z "$HOST" ]; then HOST="${{ secrets.ADB_TUNNEL_HOSTNAME }}"; fi
           if [ -z "$HOST" ]; then
             echo "Set the hostname input or the ADB_TUNNEL_HOSTNAME secret." >&2
             exit 1
           fi
-          cloudflared access tcp --hostname "$HOST" --url 127.0.0.1:5555 &
+          cloudflared access tcp --hostname "$HOST" --url 127.0.0.1:5555 > /tmp/cloudflared.log 2>&1 &
           echo $! > /tmp/cloudflared.pid
           sleep 5
+          if ! kill -0 "$(cat /tmp/cloudflared.pid)" 2>/dev/null; then
+            echo "cloudflared died on startup. Log:" >&2
+            cat /tmp/cloudflared.log >&2 || true
+            exit 1
+          fi
+          echo "cloudflared is running. Startup log:"
+          cat /tmp/cloudflared.log
 
       - name: Install on the headset
         run: |
-          for i in 1 2 3 4 5 6; do
-            adb connect 127.0.0.1:5555 && break || sleep 10
+          set -euo pipefail
+          # NOTE: `adb connect` exits 0 even when it fails, so poll
+          # `adb devices` for a real 'device' state instead of trusting
+          # the exit code.
+          connected=0
+          for i in $(seq 1 24); do
+            adb connect 127.0.0.1:5555 >/dev/null 2>&1 || true
+            if adb devices | grep -Eq "127\.0\.0\.1:5555[[:space:]]+device$"; then
+              connected=1
+              echo "connected on attempt $i"
+              break
+            fi
+            echo "attempt $i: $(adb devices | grep '127.0.0.1:5555' | tr '\n' ';' || echo 'not listed')"
+            sleep 5
           done
-          adb wait-for-device
-          adb install -r /tmp/plezy-quest.apk
+          if [ "$connected" -ne 1 ]; then
+            echo "=== adb never reached 'device' state ===" >&2
+            adb devices -l >&2 || true
+            echo "=== cloudflared log tail ===" >&2
+            tail -40 /tmp/cloudflared.log >&2 || true
+            exit 1
+          fi
+          adb -s 127.0.0.1:5555 wait-for-device
+          adb -s 127.0.0.1:5555 install -r /tmp/plezy-quest.apk
 
       - name: Verify installed version
-        run: adb shell dumpsys package com.edde746.plezy | grep -i versionName
+        run: adb -s 127.0.0.1:5555 shell dumpsys package com.edde746.plezy | grep -i versionName
 
       - name: Close the tunnel
         if: always()
