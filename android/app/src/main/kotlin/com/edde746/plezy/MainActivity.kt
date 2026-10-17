@@ -292,6 +292,16 @@ class MainActivity : FlutterActivity() {
     val hasFakeTouch = pm.hasSystemFeature(PackageManager.FEATURE_FAKETOUCH)
     val isAutomotive = pm.hasSystemFeature(PackageManager.FEATURE_AUTOMOTIVE)
 
+    // Whether the system can present the SAF directory picker: Android TV
+    // distributions commonly ship no DocumentsUI activity, so a custom
+    // download root cannot be selected there. Check the capability directly
+    // instead of using the TV form factor as a proxy.
+    @Suppress("DEPRECATION")
+    val supportsDocumentPicker = pm.queryIntentActivities(
+      Intent(Intent.ACTION_OPEN_DOCUMENT_TREE),
+      PackageManager.MATCH_DEFAULT_ONLY
+    ).isNotEmpty()
+
     val reasons = mutableListOf<String>()
     if (isTelevisionUiMode) reasons.add("ui_mode_television")
     if (hasTelevisionFeature) reasons.add("television_feature")
@@ -305,6 +315,7 @@ class MainActivity : FlutterActivity() {
       // diagnostics, but never let them promote a vehicle to the TV experience.
       "isTv" to (!isAutomotive && reasons.isNotEmpty()),
       "isAutomotive" to isAutomotive,
+      "supportsDocumentPicker" to supportsDocumentPicker,
       "reasons" to reasons,
       "isTelevisionUiMode" to isTelevisionUiMode,
       "hasTelevisionFeature" to hasTelevisionFeature,
