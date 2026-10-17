@@ -26,7 +26,13 @@ class AndroidTvFeatureDetection {
   /// active. Non-empty with [isTv] false when automotive vetoed the verdict.
   final List<String> reasons;
 
-  const AndroidTvFeatureDetection({required this.isTv, required this.isAutomotive, required this.reasons});
+  /// Whether the system can present the SAF directory picker (i.e. some
+  /// activity handles ACTION_OPEN_DOCUMENT_TREE). Android TV distributions
+  /// commonly ship no DocumentsUI, so this is checked directly instead of
+  /// using the TV form factor as a proxy.
+  final bool supportsDocumentPicker;
+
+  const AndroidTvFeatureDetection({required this.isTv, required this.isAutomotive, required this.reasons, required this.supportsDocumentPicker});
 }
 
 AndroidTvFeatureDetection detectAndroidTvFromSystemFeatures(Iterable<String> features) {
@@ -42,10 +48,14 @@ AndroidTvFeatureDetection detectAndroidTvFromSystemFeatures(Iterable<String> fea
   // either would otherwise route a vehicle through the leanback experience.
   final isAutomotive = featureSet.contains(_androidFeatureAutomotive);
 
+  final isTv = !isAutomotive && reasons.isNotEmpty;
+
   return AndroidTvFeatureDetection(
-    isTv: !isAutomotive && reasons.isNotEmpty,
+    isTv: isTv,
     isAutomotive: isAutomotive,
     reasons: reasons,
+    // Fallback path has no PackageManager access; keep the old heuristic.
+    supportsDocumentPicker: !isTv,
   );
 }
 
@@ -79,6 +89,7 @@ class TvDetectionService {
   bool _forceTv = false;
   bool _isAppleTV = false;
   bool _isAutomotive = false;
+  bool _supportsDocumentPicker = false;
   bool _initialized = false;
   List<String> _detectionReasons = const [];
 
@@ -101,6 +112,7 @@ class TvDetectionService {
           nativeDetection ?? detectAndroidTvFromSystemFeatures((await deviceInfo.androidInfo).systemFeatures);
       _detected = detection.isTv;
       _isAutomotive = detection.isAutomotive;
+      _supportsDocumentPicker = detection.supportsDocumentPicker;
       _detectionReasons = detection.reasons;
     } else if (Platform.isIOS) {
       if (_tvosBuild) {
@@ -147,8 +159,10 @@ class TvDetectionService {
       final reasons = reasonsValue is Iterable ? reasonsValue.whereType<String>().toList() : <String>[];
       final isTv = result['isTv'] == true;
       final isAutomotive = result['isAutomotive'] == true;
+      // Fall back to the old TV heuristic if the native side didn't send it.
+      final supportsDocumentPicker = (result['supportsDocumentPicker'] as bool?) ?? !isTv;
       if (isTv && reasons.isEmpty) reasons.add('native');
-      return AndroidTvFeatureDetection(isTv: isTv && !isAutomotive, isAutomotive: isAutomotive, reasons: reasons);
+      return AndroidTvFeatureDetection(isTv: isTv && !isAutomotive, isAutomotive: isAutomotive, reasons: reasons, supportsDocumentPicker: supportsDocumentPicker);
     } on MissingPluginException {
       return null;
     } on PlatformException {
@@ -190,6 +204,10 @@ class TvDetectionService {
 
   /// Synchronous Android Automotive OS check (false before initialization).
   static bool isAutomotiveSync() => _debugAutomotiveOverride ?? _singleton.instance?._isAutomotive ?? false;
+
+  /// Whether the system can present the SAF directory picker (false before
+  /// initialization).
+  static bool supportsDocumentPickerSync() => _singleton.instance?._supportsDocumentPicker ?? false;
 
   @visibleForTesting
   static void debugSetAppleTVOverride(bool? value) {
@@ -233,6 +251,11 @@ class PlatformDetector {
   /// True on Android Automotive OS head units.
   static bool isAutomotive() {
     return TvDetectionService.isAutomotiveSync();
+  }
+
+  /// True when the system can present the SAF directory picker.
+  static bool supportsDocumentPicker() {
+    return TvDetectionService.supportsDocumentPickerSync();
   }
 
   /// Detects if the app should use side navigation (Desktop or TV).

@@ -48,9 +48,11 @@ class SafStorageService implements SafStorageOperations {
   /// Check if SAF is available (Android only)
   bool get isAvailable => Platform.isAndroid;
 
-  /// Android TV distributions commonly have no DocumentsUI activity, so a
-  /// custom SAF root cannot be selected there.
-  bool get supportsDirectoryPicker => isAvailable && !PlatformDetector.isTV();
+  /// Whether the SAF directory picker can be presented. Android TV
+  /// distributions commonly ship no DocumentsUI activity, so a custom SAF
+  /// root cannot be selected there — but the form factor is only a proxy,
+  /// so check the capability directly instead.
+  bool get supportsDirectoryPicker => isAvailable && PlatformDetector.supportsDocumentPicker();
 
   /// Pick a directory using SAF.
   ///
