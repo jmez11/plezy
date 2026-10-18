@@ -79,6 +79,7 @@ import com.edde746.plezy.shared.FrameRateManager
 import com.edde746.plezy.shared.MediaCodecQuery
 import com.edde746.plezy.shared.PlayerSurfaceHost
 import com.edde746.plezy.shared.SurfacePlayerCore
+import com.edde746.plezy.shared.WindowAudioRouting
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 import org.chromium.net.CronetEngine
@@ -399,6 +400,8 @@ class ExoPlayerCore(private val activity: Activity) :
   private val subtitleTrackGroupMap = mutableMapOf<String, TrackGroup>()
   private var pendingTrackRestore: PendingTrackRestore? = null
 
+  private var windowAudioRouting = WindowAudioRouting(activity)
+
   private data class PendingTrackRestore(
     val audio: TrackRestoreIdentity?,
     val subtitle: TrackRestoreIdentity?,
@@ -588,6 +591,8 @@ class ExoPlayerCore(private val activity: Activity) :
     }
 
     tunnelingUserEnabled = tunnelingEnabled
+    windowAudioRouting.close()
+    windowAudioRouting = WindowAudioRouting(activity)
     this.audioPassthroughEnabled = audioPassthroughEnabled
     this.dvMode = getConfiguredDvMode()
     displayHdrSupported = DoviBridge.displaySupportsHdr(activity)
@@ -2961,6 +2966,7 @@ class ExoPlayerCore(private val activity: Activity) :
       eventTime: AnalyticsListener.EventTime,
       audioTrackConfig: AudioSink.AudioTrackConfig
     ) {
+      windowAudioRouting.setSession(exoPlayer?.audioSessionId ?: 0)
       lastAudioTrackConfig = audioTrackConfig
       val audioFormat = selectedAudioFormat()
       persistRuntimePlaybackDiagnostics(audioFormat, audioDecoderInitName ?: "direct")
@@ -2994,6 +3000,7 @@ class ExoPlayerCore(private val activity: Activity) :
     }
 
     override fun onAudioSessionIdChanged(eventTime: AnalyticsListener.EventTime, audioSessionId: Int) {
+      windowAudioRouting.setSession(audioSessionId)
       emitLog("debug", "audio", "Audio session id: $audioSessionId")
       if (audioNormalizationEnabled) attachNormalizationEffect()
     }
@@ -4332,6 +4339,7 @@ class ExoPlayerCore(private val activity: Activity) :
   // Cleanup
 
   fun dispose() {
+    windowAudioRouting.close()
     if (disposing) return
     disposing = true
     check(Looper.myLooper() == Looper.getMainLooper())
