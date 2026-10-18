@@ -27,6 +27,7 @@ import com.edde746.plezy.shared.PlayerDebugLog
 import com.edde746.plezy.shared.PlayerDelegate
 import com.edde746.plezy.shared.PlayerSurfaceHost
 import com.edde746.plezy.shared.SurfacePlayerCore
+import com.edde746.plezy.shared.WindowAudioRouting
 import java.util.Locale
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -782,6 +783,7 @@ class MpvPlayerCore private constructor(
   }
 
   private var frameRateManager: FrameRateManager? = null
+  private var windowAudioRouting: WindowAudioRouting? = null
   private val handler = Handler(Looper.getMainLooper())
 
   // Result-callback marshaling. Separate from [handler], whose queued
@@ -1047,6 +1049,10 @@ class MpvPlayerCore private constructor(
         PlayerDebugLog.d(TAG) { "SurfaceView added to content view" }
       }
 
+      val windowAudioSession = if (!audioOnly) {
+        WindowAudioRouting(activity).also { windowAudioRouting = it }.allocateSession()
+      } else 0
+
       scope.launch {
         try {
           if (!audioOnly) {
@@ -1155,6 +1161,7 @@ class MpvPlayerCore private constructor(
                   demuxerBudgetWrites(demuxerBudget) { name, value -> setOption(name, value) }
                 }
                 setOption("ao", "audiotrack,opensles")
+                if (windowAudioSession > 0) setOption("audiotrack-session-id", windowAudioSession.toString())
                 // Pause on the last frame at EOF instead of unloading the file, so a
                 // seek after the video ends still works (matches Linux/Windows).
                 setOption("keep-open", "yes")
@@ -1334,6 +1341,7 @@ class MpvPlayerCore private constructor(
         delegate?.onEvent("file-loaded", lifecycleData(event.sourceId))
       }
       is MpvEvent.PlaybackRestart -> {
+        windowAudioRouting?.rebind()
         if (!audioOnly) measurePresentedRate()
         delegate?.onEvent(
           "playback-restart",
@@ -3316,6 +3324,8 @@ class MpvPlayerCore private constructor(
     // Hiding a SurfaceView destroys its surface. Keep the views visible until
     // native teardown retires both consumers; Flutter's overlay stays above.
 
+    windowAudioRouting?.close()
+    windowAudioRouting = null
     handler.removeCallbacksAndMessages(null)
 
     // Clean up frame rate and audio focus. The display-mode restore is owned
