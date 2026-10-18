@@ -30,7 +30,8 @@ cores. They require Horizon's audio dump to report EPS spatialization ON for
 the actual session, including replacement ExoPlayer sessions. They skip on
 ordinary Android. On failure, the dump is saved to the app cache as
 `window-audio-failure.txt`. Perceived direction and head tracking while moving
-the window still require a headset listening check.
+the window require a headset listening check. The wearer confirmed spatial
+positioning works on 2026-10-18.
 
 Validated on Quest 3 on 2026-10-18: both device tests passed (EPS ON for MPV
 and replacement ExoPlayer sessions). The installed release had a newer version
