@@ -467,9 +467,22 @@ class ExternalPlayerService {
   }) async {
     try {
       final packages = player.id == 'system_default' ? const <String>[] : KnownPlayers.androidPackageCandidates(player);
+      final parentIndex = metadata?.parentIndex;
+      final index = metadata?.index;
+      final formattedTitle = switch (metadata?.kind) {
+        MediaKind.episode => [
+          if (metadata?.grandparentTitle?.trim().isNotEmpty == true) metadata!.grandparentTitle!.trim(),
+          if (parentIndex != null && index != null) 'S${parentIndex}E$index',
+          if (metadata?.title?.trim().isNotEmpty == true) metadata!.title!.trim(),
+        ].join(' · '),
+        _ => metadata?.title?.trim(),
+      };
+      final filename = metadata?.allPartFiles.firstOrNull?.split(RegExp(r'[/\\]')).last;
+
       final result = await _externalPlayerChannel.invokeMapMethod<String, Object?>('openVideo', {
         'filePath': url,
-        if (metadata?.title?.trim().isNotEmpty == true) 'title': metadata!.title!.trim(),
+        if (formattedTitle != null && formattedTitle.isNotEmpty) 'title': formattedTitle,
+        if (filename != null && filename.isNotEmpty) 'filename': filename,
         if (startPosition != null && startPosition > Duration.zero) 'startPositionMs': startPosition.inMilliseconds,
         if (packages.isNotEmpty) 'packages': packages,
         if (subtitles.isNotEmpty) 'subtitles': [for (final track in subtitles) ?_subtitleArgument(track)],
