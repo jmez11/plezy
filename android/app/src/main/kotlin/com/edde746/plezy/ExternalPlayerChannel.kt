@@ -128,6 +128,7 @@ internal class ExternalPlayerChannel(private val activity: Activity) {
       ?.mapNotNull { (it as? String)?.trim()?.takeIf(String::isNotEmpty) }
       ?: emptyList()
     val title = call.argument<String>("title")?.trim()?.takeIf(String::isNotEmpty)
+    val filename = call.argument<String>("filename")?.trim()?.takeIf(String::isNotEmpty)
     val startPositionMs = call.argument<Number>("startPositionMs")?.toLong() ?: 0L
     val subtitleArguments = call.argument<List<Any?>>("subtitles") ?: emptyList()
 
@@ -141,7 +142,7 @@ internal class ExternalPlayerChannel(private val activity: Activity) {
     }
 
     try {
-      val source = resolveSource(filePath)
+      val source = resolveSource(filePath, filename)
       val subtitles = subtitleArguments.mapNotNull(::resolveSubtitle)
       val targetPackages = if (packageNames.isEmpty()) listOf<String?>(null) else packageNames
       for (packageName in targetPackages) {
@@ -173,20 +174,20 @@ internal class ExternalPlayerChannel(private val activity: Activity) {
 
   internal data class Subtitle(val source: Source, val name: String?, val enabled: Boolean)
 
-  private fun resolveSource(filePath: String): Source {
+  private fun resolveSource(filePath: String, explicitFileName: String? = null): Source {
     if (filePath.startsWith("http://") || filePath.startsWith("https://")) {
       val uri = Uri.parse(filePath)
-      return Source(uri, grantRead = false, fileName = uri.lastPathSegment)
+      return Source(uri, grantRead = false, fileName = explicitFileName ?: uri.lastPathSegment)
     }
     if (filePath.startsWith("content://")) {
       val uri = Uri.parse(filePath)
-      return Source(uri, grantRead = true, fileName = uri.lastPathSegment)
+      return Source(uri, grantRead = true, fileName = explicitFileName ?: uri.lastPathSegment)
     }
 
     val path = if (filePath.startsWith("file://")) filePath.removePrefix("file://") else filePath
     val file = File(path)
     val uri = FileProvider.getUriForFile(activity, "com.edde746.plezy.fileprovider", file)
-    return Source(uri, grantRead = true, fileName = file.name)
+    return Source(uri, grantRead = true, fileName = explicitFileName ?: file.name)
   }
 
   private fun resolveSubtitle(argument: Any?): Subtitle? {
