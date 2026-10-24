@@ -13,6 +13,9 @@ on:
 
 permissions:
   contents: write
+  # Upstream releases can change .github/workflows/* files; mirroring such a
+  # tag is rejected without workflows:write (2026-10-21/22 sync failures on 2.24.0).
+  workflows: write
 
 jobs:
   sync:
