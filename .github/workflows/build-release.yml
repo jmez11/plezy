@@ -110,5 +110,5 @@ jobs:
           tag_name: ${{ inputs.tag || github.ref_name }}
           name: ${{ inputs.tag || github.ref_name }}
           files: plezy-quest.apk
-          prerelease: true
+          prerelease: false
           generate_release_notes: true
